@@ -61,21 +61,29 @@ def send(client_socket, data):
     client_socket.sendall(bytes(string, "utf8") + b"\n")
 
 def receive(client_socket, command_queue):
-    while True:
-        response = client_socket.recv(1024)
-        string = str(response, "utf8")
-        print("receive: " + string)
-        index = string.find("\n\n")
+    try:
+        while True:
+            response = client_socket.recv(1024)
+            string = str(response, "utf8")
+            print("receive: " + string)
+            index = string.find("\n\n")
 
-        if index >= 0:
-            data = yaml.load(string[: index + 2], Loader = yaml.FullLoader)
-            command_queue.put(data)
-            string = string[index + 2 :]
+            if index >= 0:
+                data = yaml.load(string[: index + 2], Loader = yaml.FullLoader)
+                command_queue.put(data)
+                string = string[index + 2 :]
+    except:
+        command_queue.put({ "system": "end" })
+        print("thread 'receive' end")
 
 def loop(command_queue, scene_lobby):
-   while True:
+    while True:
         data = command_queue.get()
         print("loop: " + str(data))
+
+        if data.get("system") == "end":
+            return print("thread 'loop' end")
+
         scene_lobby.execute(data)
 
 def main(server_host, server_port):
@@ -113,6 +121,8 @@ def main(server_host, server_port):
             if event.type == pygame.locals.QUIT:
                 pygame.quit()
                 client_socket.close()
+                thread_receive.join()
+                thread_loop.join()
                 return
 
 if __name__ == '__main__':
