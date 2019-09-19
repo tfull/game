@@ -3,6 +3,7 @@ import socket
 import select
 import multiprocessing as mp
 import threading
+import yaml
 
 class Player:
     def __init__(self):
@@ -19,12 +20,17 @@ class MessageQueue:
 def worker():
     pass
 
+def send(connection, yaml_data):
+    string = yaml.dump(yaml_data)
+    connection.send(bytes(string, "utf8") + b"\n")
+
 class Selector:
     def __init__(self, server_socket):
         self.server_socket = server_socket
         self.connection_map = {}
         self.buffer_map = {}
         self.requests_map = {}
+        self.room_map = {}
         self.buffer_size = 1024
 
     def run(self):
@@ -41,10 +47,17 @@ class Selector:
                 for fd, event in ready:
                     if fd == self.server_socket.fileno():
                         connection, address = self.server_socket.accept()
+                        new_fd = connection.fileno()
 
-                        self.connection_map[connection.fileno()] = connection
-                        self.buffer_map[connection.fileno()] = ""
-                        self.requests_map[connection.fileno()] = []
+                        for other_fd in self.connection_map:
+                            send(self.connection_map[other_fd], { "room": 0, "enter": new_fd })
+
+                        self.connection_map[new_fd] = connection
+                        self.buffer_map[new_fd] = ""
+                        self.requests_map[new_fd] = []
+                        self.room_map[new_fd] = 0
+
+                        send(connection, { "room": 0, "list": list(self.connection_map.keys()) })
 
                         select_poll.register(connection, select.POLLIN)
                     else:
@@ -54,6 +67,10 @@ class Selector:
 
                         if message:
                             self.buffer_map[fd] += str(message, "utf8")
+                            index = self.buffer_map[fd].find("\n\n")
+                            if index >= 0:
+                                data = yaml.load(self.buffer_map[fd][: index + 2], Loader = yaml.FullLoader)
+                                self.buffer_map[fd] = self.buffer_map[fd][index + 2 :]
                         else:
                             select_poll.unregister(connection)
                             connection.close()
@@ -61,6 +78,10 @@ class Selector:
                             del self.connection_map[fd]
                             del self.buffer_map[fd]
                             del self.requests_map[fd]
+                            del self.room_map[fd]
+
+                            for other_fd in self.connection_map:
+                                send(self.connection_map[other_fd], { "room": 0, "exit": fd })
 
                 print(self.buffer_map)
 
