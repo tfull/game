@@ -71,7 +71,6 @@ def receive(client_socket, command_queue):
             if index >= 0:
                 data = yaml.load(string[: index + 2], Loader = yaml.FullLoader)
                 if data.get("system") == "close":
-                    print("ikisugi")
                     command_queue.put( { "system": "end" })
                     return
                 command_queue.put(data)
@@ -100,7 +99,6 @@ def main(server_host, server_port):
     screen = pygame.display.set_mode((600, 400))
     pygame.display.set_caption("Game!")
 
-
     location = "lobby"
 
     scene_lobby = SceneLobby(client_socket)
@@ -125,7 +123,6 @@ def main(server_host, server_port):
             if event.type == pygame.locals.QUIT:
                 pygame.quit()
                 send(client_socket, { "system": "close" })
-                #client_socket.close()
                 thread_receive.join()
                 thread_loop.join()
                 client_socket.close()
