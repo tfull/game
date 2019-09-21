@@ -71,6 +71,8 @@ class Selector:
                             if index >= 0:
                                 data = yaml.load(self.buffer_map[fd][: index + 2], Loader = yaml.FullLoader)
                                 self.buffer_map[fd] = self.buffer_map[fd][index + 2 :]
+                                if data.get("system") == "close":
+                                    send(connection, { "system": "close" })
                         else:
                             select_poll.unregister(connection)
                             connection.close()

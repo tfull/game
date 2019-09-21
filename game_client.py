@@ -70,6 +70,10 @@ def receive(client_socket, command_queue):
 
             if index >= 0:
                 data = yaml.load(string[: index + 2], Loader = yaml.FullLoader)
+                if data.get("system") == "close":
+                    print("ikisugi")
+                    command_queue.put( { "system": "end" })
+                    return
                 command_queue.put(data)
                 string = string[index + 2 :]
     except:
@@ -120,9 +124,11 @@ def main(server_host, server_port):
         for event in pygame.event.get():
             if event.type == pygame.locals.QUIT:
                 pygame.quit()
-                client_socket.close()
+                send(client_socket, { "system": "close" })
+                #client_socket.close()
                 thread_receive.join()
                 thread_loop.join()
+                client_socket.close()
                 return
 
 if __name__ == '__main__':
