@@ -57,13 +57,16 @@ class Selector:
                         self.requests_map[new_fd] = []
                         self.room_map[new_fd] = 0
 
-                        send(connection, { "room": 0, "list": list(self.connection_map.keys()) })
+                        # send(connection, { "room": 0, "list": list(self.connection_map.keys()) })
+                        self.send_list(connection)
 
                         select_poll.register(connection, select.POLLIN)
                     else:
                         connection = self.connection_map[fd]
 
                         message = connection.recv(self.buffer_size)
+
+                        print(fd, message)
 
                         if message:
                             self.buffer_map[fd] += str(message, "utf8")
@@ -89,6 +92,10 @@ class Selector:
 
         except Exception as error:
             sys.stderr.write("Error: Selector {}\n".format(error))
+
+    def send_list(self, connection):
+        data = [{ "fd": fd, "room_id": room_id } for fd, room_id in self.room_map.items()]
+        send(connection, { "room": 0, "list": data })
 
 def main(host, port):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -1,5 +1,5 @@
-import pygame
-import pygame.locals
+# import pygame
+# import pygame.locals
 import sys
 import time
 import yaml
@@ -8,36 +8,56 @@ import threading
 import queue
 import select
 
-class GameBody:
-    def __init__(self):
-        pass
+import tkinter as tk
 
-class SceneLobby:
-    def __init__(self, client_socket):
-        self.buffer = ""
-        self.socket = client_socket
+import gui
+
+
+class SceneLobby(tk.Canvas):
+    def __init__(self, hub):
+        super().__init__(hub.window.master, width = 1280, height = 720, bg = "#218721")
+        self.width = 1280
+        self.height = 720
+        self.page = 0
+        self.chunk = 2
+        self.pack()
+        self.socket = hub.socket
         self.rooms = [[] for _ in range(65)]
-        self.lock_rooms = threading.Lock()
 
     def execute(self, command):
         if command["room"] == 0:
             if command.get("list") is not None:
-                self.lock_rooms.acquire()
 
-                for x in command["list"]:
-                    self.rooms[0].append(x)
+                for item in command["list"]:
+                    self.rooms[item["room_id"]].append(item["fd"])
 
-                self.lock_rooms.release()
+                self.render()
 
             elif command.get("enter") is not None:
-                self.lock_rooms.acquire()
-                self.rooms[0].append(command["enter"])
-                self.lock_rooms.release()
+                room_id = command["enter"]["room_id"]
+                fd = command["enter"]["room_id"]
+                self.rooms[room_id].append(fd)
 
             elif command.get("exit") is not None:
-                self.lock_rooms.acquire()
-                self.rooms[0].remove(command["exit"])
-                self.lock_rooms.release()
+                room_id = comand["exit"]["room_id"]
+                fd = command["enter"]["room_id"]
+                self.rooms[room_id].remove(fd)
+
+
+    def render(self):
+        h = self.height
+        margin = h / 12
+        first_room_id = self.page * (self.chunk ** 2) + 1
+
+        for i in range(self.chunk):
+            for j in range(self.chunk):
+                first_room_id + i * self.chunk + j
+                size = (7 * h) / (8 * self.chunk) - h / 24
+                top = margin + i * (size + h / 24)
+                left = margin + j * (size + h / 24)
+                self.create_rectangle(left, top, left + size, top + size, fill = "yellow")
+
+        self.create_rectangle(self.height, 0, self.width, self.height, fill = "white")
 
     def draw(self, screen):
         sysfont = pygame.font.SysFont(None, 80)
@@ -46,87 +66,93 @@ class SceneLobby:
         font = sysfont.render(string, True, (0, 0, 0))
         screen.blit(font, (30, 30))
 
-class Lobby:
+
+
+class SceneSwitch:
     def __init__(self):
         pass
 
-class Room:
-    pass
+    def set_scene(self, scene):
+        self.scene = scene
 
-class Command:
-    pass
+    def send(self, command):
+        self.scene.execute(command)
+
 
 def send(client_socket, data):
     string = yaml.dump(data)
     client_socket.sendall(bytes(string, "utf8") + b"\n")
 
-def receive(client_socket, command_queue):
+
+def receive_loop(client_socket, command_receiver):
     try:
         while True:
             response = client_socket.recv(1024)
             string = str(response, "utf8")
-            print("receive: " + string)
+            print("[receive]: " + string)
             index = string.find("\n\n")
 
             if index >= 0:
                 data = yaml.load(string[: index + 2], Loader = yaml.FullLoader)
                 if data.get("system") == "close":
-                    command_queue.put( { "system": "end" })
+                    command_receiver.put({ "system": "end" })
                     return
-                command_queue.put(data)
+                command_receiver.put(data)
                 string = string[index + 2 :]
     except:
-        command_queue.put({ "system": "end" })
+        command_receiver.put({ "system": "end" })
         print("thread 'receive' end")
 
-def loop(command_queue, scene_lobby):
+def command_loop(command_receiver, scene_switch):
     while True:
-        data = command_queue.get()
-        print("loop: " + str(data))
+        data = command_receiver.get()
+        print("[loop]: " + str(data))
 
         if data.get("system") == "end":
             return print("thread 'loop' end")
 
-        scene_lobby.execute(data)
+        scene_switch.send(data)
+
+
+class Hub:
+    def __init__(self, client_socket, window):
+        self.socket = client_socket
+        self.window = window
+
 
 def main(server_host, server_port):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((server_host, server_port))
 
-    command_queue = queue.Queue()
+    command_receiver = queue.Queue()
 
-    pygame.init()
-    screen = pygame.display.set_mode((600, 400))
-    pygame.display.set_caption("Game!")
+    scene_switch = SceneSwitch()
 
-    location = "lobby"
+    thread_receive_loop = threading.Thread(target = receive_loop, args = (client_socket, command_receiver))
+    thread_command_loop = threading.Thread(target = command_loop, args = (command_receiver, scene_switch))
 
-    scene_lobby = SceneLobby(client_socket)
+    def before_quit_action():
+        send(client_socket, { "system": "close" })
+        thread_receive_loop.join()
+        client_socket.close()
 
-    event = threading.Event()
+    config = {
+        "before_quit_action": before_quit_action
+    }
 
-    thread_receive = threading.Thread(target = receive, args = (client_socket, command_queue))
-    thread_loop = threading.Thread(target = loop, args = (command_queue, scene_lobby))
+    window = gui.create_window(config)
 
-    thread_receive.start()
-    thread_loop.start()
+    hub = Hub(client_socket = client_socket, window = window)
+    scene_switch.set_scene(SceneLobby(hub))
 
-    clock = pygame.time.Clock()
 
-    while True:
-        clock.tick(60)
+    thread_receive_loop.start()
+    thread_command_loop.start()
 
-        scene_lobby.draw(screen)
-        pygame.display.update()
 
-        for event in pygame.event.get():
-            if event.type == pygame.locals.QUIT:
-                pygame.quit()
-                send(client_socket, { "system": "close" })
-                thread_receive.join()
-                thread_loop.join()
-                client_socket.close()
-                return
+
+    gui.start(window)
+
 
 if __name__ == '__main__':
     server_host = sys.argv[1]
